@@ -1,53 +1,73 @@
 import pandas as pd
 import joblib
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import mean_absolute_error
 
 # Load cleaned dataset
-df = pd.read_csv("cleaned_nba_games.csv")
+df = pd.read_csv("cleaned_nba_games_fixed.csv")
 
+# Print initial dataset shape
+print(f"Initial dataset shape: {df.shape}")
 
+# Print column names
+print("Columns in dataset:", df.columns.tolist())
 
-# Define features (team stats)
-features = [col for col in df.columns if col.startswith("team_a_") or col.startswith("team_b_")]
+# Check missing values
+missing_values = df.isna().sum()
+print("Missing values per column:\n", missing_values)
 
-# Define target (points scored by Team A)
-target = "team_a_pts"
+# Drop rows where the target column is missing
+df = df.dropna(subset=['PTS'])  # Using 'PTS' instead of 'team_a_pts'
+print(f"Dataset shape after dropping NaN target values: {df.shape}")
 
-# Split data into train/test sets
-X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, random_state=42)
+# Ensure target column exists
+target_column = 'PTS'
+if target_column not in df.columns:
+    raise ValueError(f"Target column '{target_column}' not found in dataset!")
 
-print(X_train.head())
-print(X_train.dtypes)
+# Encode categorical columns
+categorical_columns = ['TEAM_NAME', 'TEAM_NAME_opp']  # Adjusted for new dataset structure
+label_encoders = {}
 
-X_train = pd.get_dummies(X_train, columns=["team_a_team_abbreviation", "team_b_team_abbreviation"])
-X_test = pd.get_dummies(X_test, columns=["team_a_team_abbreviation", "team_b_team_abbreviation"])
+for col in categorical_columns:
+    if col in df.columns:
+        label_encoders[col] = LabelEncoder()
+        df[col] = label_encoders[col].fit_transform(df[col])
 
+# Define features (X) and target (y)
+X = df.drop(columns=[target_column], errors='ignore')
+y = df[target_column]
 
-X_train = X_train.drop(
-    ["team_a_team_abbreviation", "team_a_team_name", "team_a_game_date",
-     "team_b_team_abbreviation", "team_b_team_name", "team_b_game_date"],
-    axis=1
-)
+# Drop unnecessary columns safely
+columns_to_drop = ['TEAM_ABBREVIATION', 'TEAM_ABBREVIATION_opp']
+X = X.drop(columns=[col for col in columns_to_drop if col in X.columns])
 
-X_test = X_test.drop(
-    ["team_a_team_abbreviation", "team_a_team_name", "team_a_game_date",
-     "team_b_team_abbreviation", "team_b_team_name", "team_b_game_date"],
-    axis=1
-)
+# Ensure X is not empty
+if X.shape[1] == 0:
+    print("Columns in X after preprocessing:", X.columns.tolist())
+    raise ValueError("Feature set X is empty after preprocessing! Check column selection.")
 
-# Train Linear Regression model
-model = LinearRegression()
+# Check data types
+print(X.dtypes)
+print(X.isnull().sum())  # Ensure no missing values
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+print("Data split successfully!")
+
+# Train a Random Forest Regressor
+model = RandomForestRegressor(n_estimators=100, random_state=42)
 model.fit(X_train, y_train)
 
-# Evaluate model
+# Make predictions
 y_pred = model.predict(X_test)
-mae = mean_absolute_error(y_test, y_pred)
 
-print(f"Model trained! MAE: {mae:.2f}")
+# Evaluate model performance
+mae = mean_absolute_error(y_test, y_pred)
+print(f"Mean Absolute Error: {mae:.4f}")
 
 # Save model
-joblib.dump(model, "nba_score_predictor.pkl")
-
-print("Model saved as 'nba_score_predictor.pkl'")
+joblib.dump(model, "nba_model.pkl")
+print("Model saved successfully!")
